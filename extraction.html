@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Signature Extractor</title>
+  <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();"></script>
+</head>
+<body>
+
+<h3>Signature Extractor</h3>
+<input type="file" id="fileInput" accept="image/*">
+<br><br>
+<canvas id="canvasOutput" width="300" height="100"></canvas>
+
+<script>
+  function onOpenCvReady() {
+    document.getElementById('fileInput').addEventListener('change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        var img = new Image();
+        img.onload = function () {
+          processImage(img);
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function processImage(img) {
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext('2d');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+
+    var src = cv.imread(canvas);
+    var gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+    var thresh = new cv.Mat();
+    cv.threshold(gray, thresh, 150, 255, cv.THRESH_BINARY_INV);
+
+    var kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+    var dilated = new cv.Mat();
+    cv.dilate(thresh, dilated, kernel);
+
+    var contours = new cv.MatVector();
+    var hierarchy = new cv.Mat();
+    cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    if (contours.size() > 0) {
+      var maxContour = contours.get(0);
+      var maxArea = cv.contourArea(maxContour);
+
+      for (var i = 1; i < contours.size(); ++i) {
+        var cnt = contours.get(i);
+        var area = cv.contourArea(cnt);
+        if (area > maxArea) {
+          maxArea = area;
+          maxContour = cnt;
+        }
+      }
+
+      var rect = cv.boundingRect(maxContour);
+      var pad = 100;
+      var x = Math.max(rect.x - pad, 0);
+      var y = Math.max(rect.y - pad, 0);
+      var w = Math.min(rect.width + 2 * pad, src.cols - x);
+      var h = Math.min(rect.height + 2 * pad, src.rows - y);
+      var cropped = src.roi(new cv.Rect(x, y, w, h));
+
+      var grayCrop = new cv.Mat();
+      cv.cvtColor(cropped, grayCrop, cv.COLOR_RGBA2GRAY);
+
+      var clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+      var enhanced = new cv.Mat();
+      clahe.apply(grayCrop, enhanced);
+
+      var adaptive = new cv.Mat();
+      cv.adaptiveThreshold(
+        enhanced, adaptive, 255,
+        cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv.THRESH_BINARY_INV, 15, 6
+      );
+
+      var kernel2 = cv.Mat.ones(2, 2, cv.CV_8U);
+      var cleaned = new cv.Mat();
+      cv.morphologyEx(adaptive, cleaned, cv.MORPH_OPEN, kernel2);
+
+      var contours2 = new cv.MatVector();
+      var hierarchy2 = new cv.Mat();
+      cv.findContours(cleaned, contours2, hierarchy2, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+      var xMin = cleaned.cols, yMin = cleaned.rows, xMax = 0, yMax = 0;
+      for (var i = 0; i < contours2.size(); ++i) {
+        var cnt = contours2.get(i);
+        if (cv.contourArea(cnt) > 100) {
+          var r = cv.boundingRect(cnt);
+          xMin = Math.min(xMin, r.x);
+          yMin = Math.min(yMin, r.y);
+          xMax = Math.max(xMax, r.x + r.width);
+          yMax = Math.max(yMax, r.y + r.height);
+        }
+      }
+
+      var pad2 = 20;
+      xMin = Math.max(xMin - pad2, 0);
+      yMin = Math.max(yMin - pad2, 0);
+      xMax = Math.min(xMax + pad2, cleaned.cols);
+      yMax = Math.min(yMax + pad2, cleaned.rows);
+      var croppedMask = cleaned.roi(new cv.Rect(xMin, yMin, xMax - xMin, yMax - yMin));
+
+      var rgba = new cv.Mat();
+      var channels = new cv.MatVector();
+      var black = new cv.Mat.zeros(croppedMask.rows, croppedMask.cols, cv.CV_8UC1);
+      channels.push_back(black);
+      channels.push_back(black);
+      channels.push_back(black);
+      channels.push_back(croppedMask);
+      cv.merge(channels, rgba);
+
+      var resized = new cv.Mat();
+      var dsize = new cv.Size(300, 100);
+      cv.resize(rgba, resized, dsize, 0, 0, cv.INTER_AREA);
+
+      cv.imshow("canvasOutput", resized);
+
+      src.delete(); gray.delete(); thresh.delete(); dilated.delete();
+      kernel.delete(); contours.delete(); hierarchy.delete();
+      grayCrop.delete(); enhanced.delete(); adaptive.delete();
+      kernel2.delete(); cleaned.delete(); contours2.delete(); hierarchy2.delete();
+      cropped.delete(); croppedMask.delete(); rgba.delete(); resized.delete();
+      black.delete(); channels.delete(); clahe.delete();
+    }
+  }
+</script>
+
+</body>
+</html>
