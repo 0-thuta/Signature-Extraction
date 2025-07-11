@@ -2,6 +2,12 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## Installation
+
+You will need to install cropper package from the npm library.
+
+`npm install react-advanced-cropper`
+
 ## Available Scripts
 
 In the project directory, you can run:
